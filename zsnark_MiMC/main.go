@@ -10,10 +10,12 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/mimc"
 	"github.com/consensys/gnark/backend/groth16"
+	groth16_bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	gnark_mimc "github.com/consensys/gnark/std/hash/mimc"
+	gnarktosnarkjs "github.com/mysteryon88/gnark-to-snarkjs"
 )
 
 const (
@@ -151,7 +153,56 @@ func main() {
 	rootElement.SetBytes(root)
 
 	//exportForSnarkJS(proof, vk, publicWitness)
-	exportBinaryForRust(proof, vk, publicWitness)
+	// exportBinaryForRust(proof, vk, publicWitness)
+	exportForSnark(proof, vk, publicWitness)
+}
+
+func exportForSnark(proof groth16.Proof, vk groth16.VerifyingKey, publicWitness witness.Witness) {
+	// 1. Estraiamo i valori dal Witness Pubblico
+	// Gnark ordina alfabeticamente: [0] = ExpectedSum, [1] = Root
+	pubVals := publicWitness.Vector()
+	// Convertiamo il vettore in uno slice di fr.Element leggibile
+	// fr.Vector implementa l'interfaccia per essere convertito così:
+	vec := pubVals.(fr.Vector)
+
+	// Adesso accediamo agli elementi con l'indice
+	// In Gnark l'ordine è alfabetico: ExpectedSum (0), Root (1)
+	sumStr := vec[0].String()
+	rootStr := vec[1].String()
+
+	// Creiamo l'array di stringhe che SnarkJS si aspetta
+	publicSignals := []string{
+		sumStr,
+		rootStr,
+	}
+
+	// 2. Esportiamo la Proof (con cast a BN254 richiesto dalla libreria)
+	proofOut, err := os.Create("proof.json")
+	if err == nil {
+		// La libreria richiede il puntatore specifico della curva BN254
+		gnarktosnarkjs.ExportProof(proof.(*groth16_bn254.Proof), publicSignals, proofOut)
+		proofOut.Close()
+	}
+
+	// 3. Esportiamo la Verifying Key
+	vkOut, err := os.Create("verification_key.json")
+	if err == nil {
+		// La libreria richiede il puntatore specifico della curva BN254
+		gnarktosnarkjs.ExportVerifyingKey(vk.(*groth16_bn254.VerifyingKey), vkOut)
+		vkOut.Close()
+	}
+
+	// 4. Esportiamo il file public.json (Fondamentale per SnarkJS!)
+	publicOut, err := os.Create("public.json")
+	if err == nil {
+		enc := json.NewEncoder(publicOut)
+		enc.SetIndent("", "  ")
+		enc.Encode(publicSignals)
+		publicOut.Close()
+	}
+
+	fmt.Println("🚀 File JSON generati con successo per SnarkJS!")
+	fmt.Printf("   Signals: Sum=%s, Root=%s\n", sumStr, rootStr)
 }
 
 func exportBinaryForRust(proof groth16.Proof, vk groth16.VerifyingKey, publicWitness witness.Witness) {
