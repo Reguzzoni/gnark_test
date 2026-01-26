@@ -1,5 +1,5 @@
 {
-  "name": "test_snarkjs",
+  "name": "verify_poseidon_snarkjs",
   "version": "1.0.0",
   "main": "test.js",
   "scripts": {
