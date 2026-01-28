@@ -1,23 +1,2 @@
 
-.DS_Store
-/target
-/*.log
-/*.tmp
-/*.bak
-/*.swp
-/.idea
-/*.iml
-/Cargo.lock 
-/*.exe
-/*.dll
-/*.so
-/*.dylib
-/*.class
-/*.jar
-/*.pyc
-/*.pyo
-/*.pyd
-/*.out
-/*.o
-/*.node_modules
 node_modules/
