@@ -31,22 +31,27 @@ type QuantumValueCircuit struct {
 	Hashes      [MaxValues]frontend.Variable `gnark:",public"`
 	ExpectedSum frontend.Variable            `gnark:",public"`
 
-	Values [MaxValues]frontend.Variable `gnark:",secret"`
+	Values      [MaxValues]frontend.Variable `gnark:",secret"`
+	MasterNonce frontend.Variable            `gnark:",secret"`
 }
 
+// TODO circum circuit
 func (c *QuantumValueCircuit) Define(api frontend.API) error {
 	p2, _ := gnark_poseidon2.NewPoseidon2FromParameters(api, 2, 8, 56)
 	totalSum := frontend.Variable(0)
 
 	for i := 0; i < MaxValues; i++ {
-		// Accumulo la somma
 		totalSum = api.Add(totalSum, c.Values[i])
 
-		// Verifico l'hash del singolo KPI (Mapping Lineare)
-		state := []frontend.Variable{c.Values[i], 0} // [valore, padding]
+		// derive master nonce as Poseidon2(master_nonce, i)
+		stateNonce := []frontend.Variable{c.MasterNonce, i}
+		p2.Permutation(stateNonce)
+		derivedNonce := stateNonce[0]
+
+		// Permutation value + nonce to avoid preimage and dict attacks
+		state := []frontend.Variable{c.Values[i], derivedNonce}
 		p2.Permutation(state)
 
-		// Questo vincolo assicura la provenienza del dato
 		api.AssertIsEqual(state[0], c.Hashes[i])
 	}
 
@@ -65,10 +70,7 @@ func main() {
 	// Dati JSON  esempio
 	jsonData := `{
 		"values": [
-			1.3, 2.3, 4.234, 3.87, 5.12, 6.45, 7.01, 6.88,
-			5.76, 4.92, 3.58, 2.91, 3.14, 4.01, 5.33, 6.02,
-			6.77, 7.25, 8.1, 7.84, 6.59, 5.48, 4.66, 3.97,
-			3.21, 2.75, 2.18, 1.92, 1.56, 1.11
+			1.3, 2.3
 		]
 	}`
 
@@ -81,18 +83,29 @@ func main() {
 	var scaledValues [MaxValues]int64
 	var publicHashes [MaxValues]fr.Element // Array di hash al posto della Root
 
-	// Supponiamo di caricare i dati JSON
+	// Generazione di un master nonce casuale
+	// TBD in future took from DB
+	var masterNonce fr.Element
+	masterNonce.SetUint64(123456789) // Sostituisci 1 con un numero segreto o casuale
+
 	for i := 0; i < MaxValues; i++ {
 		if i < len(data.Values) {
-			scaledValues[i] = int64(math.Round(data.Values[i] * 1000))
+			scaledValues[i] = int64(math.Round(data.Values[i] * 100))
 		}
+
+		// Create fr.Element slice for Poseidon2 permutation
+		var iElement fr.Element
+		iElement.SetInt64(int64(i))
+		stateNonce := []fr.Element{masterNonce, iElement}
+		p2Instance.Permutation(stateNonce)
+		p2DerivedNonce := stateNonce[0]
 
 		var e fr.Element
 		e.SetInt64(scaledValues[i])
 
-		// Calcolo l'hash per ogni singolo valore
-		state := []fr.Element{e, {}}
+		state := []fr.Element{e, p2DerivedNonce}
 		p2Instance.Permutation(state)
+
 		publicHashes[i] = state[0]
 	}
 
@@ -105,6 +118,7 @@ func main() {
 		sum += scaledValues[i]
 	}
 	assignment.ExpectedSum = sum
+	assignment.MasterNonce = masterNonce
 
 	witness, _ := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
 	publicWitness, _ := witness.Public()
